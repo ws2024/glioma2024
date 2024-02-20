@@ -1,0 +1,164 @@
+---
+title: "figure7"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse) 
+library(ggpubr) 
+library(reshape2)
+library(vioplot)
+library(ggExtra)
+library(ggplot2)
+library(ggsankey)
+library(paletteer)
+library(survival)
+library(survminer)
+library(survivalROC)
+```
+
+
+
+```{r}
+EGFR_CNV_riskscore <- read.csv("CNV_riskscore.csv", header=T, sep=",", check.names=F, row.names = 1, fill = TRUE)
+my_comparisons <- list( c("amplification", "normal")) 
+
+```
+
+
+## Analyzing CCL2 mRNA levels in TCGA patients with or without EGFR amplification
+```{r cnvEGFR-CCL2}
+ggviolin(EGFR_CNV_riskscore, x = 'cnvlevel', y = 'CCL2', fill = 'cnvlevel',
+         palette = c("#8785B2FF","#D95F30FF"),add = 'boxplot', add.params = list(fill = "white")) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", bracket.size=0.5, tip.length = 0.02, method = 't.test')
+```
+
+
+## Analyzing TAM_SPP1 levels in TCGA patients with or without EGFR amplification
+```{r cnvEGFR-TAM_SPP1}
+ggviolin(EGFR_CNV_riskscore, x = 'cnvlevel', y = '`TAM-SPP1`', fill = 'cnvlevel',
+         palette = c("#639CA4FF","#BE7245FF"),add = 'boxplot', add.params = list(fill = "white")) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", bracket.size=0.5, tip.length = 0.02, method = 't.test')
+
+
+ggviolin(EGFR_CNV_riskscore, x = 'cnvlevel', y = '`TAM_SPP1_sig_score`', fill = 'cnvlevel',
+         palette = c("#639CA4FF","#BE7245FF"),add = 'boxplot', add.params = list(fill = "white")) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", bracket.size=0.5, tip.length = 0.02, method = 't.test')
+
+```
+
+
+## Analyzing TAM_CCL3 levels in TCGA patients with or without EGFR amplification
+```{r cnvEGFR-TAM_CCL3}
+ggviolin(EGFR_CNV_riskscore, x = 'cnvlevel', y = '`TAM-CCL3`', fill = 'cnvlevel',
+         palette = c("#639CA4FF","#BE7245FF"),add = 'boxplot', add.params = list(fill = "white")) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", bracket.size=0.5, tip.length = 0.02, method = 't.test')
+
+
+ggviolin(EGFR_CNV_riskscore, x = 'cnvlevel', y = '`TAM_CCL3_sig_score`', fill = 'cnvlevel',
+         palette = c("#639CA4FF","#BE7245FF"),add = 'boxplot', add.params = list(fill = "white")) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", bracket.size=0.5, tip.length = 0.02, method = 't.test')
+
+```
+
+
+## Comparing risk scores in TCGA patients with or without EGFR amplification
+```{r cnvEGFR-riskscore}
+ggviolin(EGFR_CNV_riskscore, x = 'cnvlevel', y = 'riskscore', fill = 'cnvlevel',
+         palette = c("#F8A02EFF","#9BB655FF"),add = 'boxplot', add.params = list(fill = "white")) +
+  stat_compare_means(comparisons = my_comparisons, label = "p.signif", bracket.size=0.5, tip.length = 0.02, method = 't.test')
+```
+
+
+## Comparing SPP1+TAM in TCGA patients with or without EGFR amplification
+```{r}
+x2 <- EGFR_CNV_riskscore[EGFR_CNV_riskscore$IDH.status %in% c("WT","Mutant"),]
+x2$`TAM_SPP1_level`<-ifelse(x2$`TAM-SPP1`> median(x2$`TAM-SPP1`), "high","low")
+```
+
+
+## Creating sankey plots
+```{r}
+data_sankey = x2%>%
+  dplyr::select(cnvlevel,TAM_SPP1_level)%>%
+  mutate(cnvlevel=as.factor(cnvlevel),TAM_SPP1_level=as.factor(TAM_SPP1_level))%>%
+  make_long(cnvlevel,TAM_SPP1_level)
+str(data_sankey)
+
+d_palettes <- palettes_d_names
+col_sankey1 <- paletteer_d("colRoz::flavolineata",n=length(unique(data_sankey$node)))
+```
+
+
+```{r sankey-CNV-SPP1TAM}
+ggplot(data_sankey, aes(x = x, next_x = next_x, node = node,
+                        next_node = next_node, fill = factor(node), label = node)) +
+  geom_alluvial(flow.alpha = .5,node.color = "gray30") +
+  geom_alluvial_text(size = 0, color = "black") +
+  scale_fill_manual(values =col_sankey1 )+
+  theme_minimal(base_size = 12)+
+  labs(x = NULL,fill='level') +
+  ggtitle("CNV-SPP1TAM")+
+  theme(legend.position = "right",
+        plot.title = element_text(hjust = .5)) +
+  theme(axis.text.y = element_blank())+
+  scale_y_continuous(expand = c(0,0))
+```
+
+
+```{r}
+data_sankey = x2%>%
+  dplyr::select(cnvlevel,IDH.status,precoxlevel)%>%
+  mutate(cnvlevel=as.factor(cnvlevel),status1=as.factor(IDH.status),precoxlevel=as.factor(precoxlevel))%>%
+  make_long(cnvlevel,IDH.status,precoxlevel)
+str(data_sankey)
+
+d_palettes <- palettes_d_names 
+col_sankey1<-paletteer_d("ggthemes::excel_Median",n=length(unique(data_sankey$node))) 
+```
+
+
+```{r sankey-IDH-CNV-riskscore}
+ggplot(data_sankey, aes(x = x, next_x = next_x, node = node, 
+                        next_node = next_node, fill = factor(node), label = node)) +
+  geom_alluvial(flow.alpha = .5,node.color = "gray30") +
+  geom_alluvial_text(size = 0, color = "black") +
+  scale_fill_manual(values =col_sankey1 )+
+  theme_minimal(base_size = 12)+
+  labs(x = NULL,fill='level') +
+  ggtitle("IDH-CNV-precox")+
+  theme(legend.position = "right",
+        plot.title = element_text(hjust = .5)) +
+  theme(axis.text.y = element_blank())+
+  scale_y_continuous(expand = c(0,0))
+```
+
+
+## Performing survival analysis
+```{r}
+x4<-EGFR_CNV_riskscore[EGFR_CNV_riskscore$cnvlevel==c("amplification"),]
+fit<- survfit(Surv(OS, status) ~ `TAM_SPP1_level`, data = x4)
+```
+
+```{r survival_CNVgain_SPP1TAM1}
+ggsurvplot(fit,pval = TRUE, palette = c("#E0C5BEFF","#FDD41AFF"),conf.int = TRUE,risk.table = TRUE, xlim = c(0, 3000),break.x.by=1000)
+
+```
+
+```{r}
+x5<-EGFR_CNV_riskscore[EGFR_CNV_riskscore$IDH.status==c("Mutant"),]
+x6<-x5[x5$cnvlevel==c("normal"),]
+fit<- survfit(Surv(OS, status) ~ precoxlevel, data = x6)
+
+```
+
+```{r survival_IDHmut_normal_riskscore}
+ggsurvplot(fit,pval = TRUE, palette = c("#DD8047FF","#A5AB81FF"),conf.int = TRUE,risk.table = TRUE, xlim = c(0, 3000),break.x.by=1000)
+
+```
+

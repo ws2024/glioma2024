@@ -1,0 +1,107 @@
+---
+title: "figure3"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(SCENIC)
+library(Seurat)
+library(SCopeLoomR)
+library(pheatmap)
+library(RColorBrewer)
+library(reshape2)
+library(SummarizedExperiment)
+```
+
+
+## Reading outputs from SCENIC
+```{r}
+top3<-read.csv(file = "13cluster_top3.csv",row.names = 1,header = TRUE)
+regulonActivity_TAMs_top3<-read.csv(file = "regulonActivity_byGroup_raw_TAM.csv",row.names = 1,header = TRUE)
+```
+
+```{r 13cluster_celltype-specific}
+pheatmap(top3, colorRampPalette(c("#6C568CFF", "white", "#607345FF"))(100),border_color="white",cluster_rows = F,cluster_cols = F,scale = "row")
+```
+
+
+```{r Regulon_activity_top3}
+pheatmap(regulonActivity_TAMs_top3, name="Regulon activity",colorRampPalette(c("#ECE2C6FF", "white", "#4A5FABFF"))(100),border_color="white",cluster_rows = FALSE,cluster_cols = FALSE) 
+```
+
+
+## Loading the seurat object
+```{r}
+sce <- readRDS("sce_SCENIC.Rdata")
+```
+
+
+## Visualizing target genes of transcription factors
+```{r}
+Idents(sce) <- "BCL3_level"
+cells_of_interest <- WhichCells(object = sce, idents = c("BCL3-High"))
+```
+
+```{r BCL3_featureplot}
+DimPlot(object = sce, cells.highlight = list(cells_of_interest), cols.highlight = "#D4419EFF", cols = "#e3e3e3", sizes.highlight = 0.4)
+```
+
+
+```{r}
+Idents(sce) <- "NFKB2_level"
+cells_of_interest <- WhichCells(object = sce, idents = c("NFKB2-High"))
+```
+
+```{r NFKB2_high_featureplot}
+DimPlot(object = sce, cells.highlight = list(cells_of_interest), cols.highlight = "#D4419EFF", cols = "#e3e3e3", sizes.highlight = 0.4)
+```
+
+
+```{r}
+Idents(sce) <- "MEF2C_level"
+cells_of_interest <- WhichCells(object = sce, idents = c("MEF2C-High"))
+```
+
+```{r MEF2C_high_featureplot}
+DimPlot(object = sce, cells.highlight = list(cells_of_interest), cols.highlight = "orange", cols = "#e3e3e3", sizes.highlight = 0.4)
+```
+
+
+```{r}
+Idents(sce) <- "SREBF1_level"
+cells_of_interest <- WhichCells(object = sce, idents = c("SREBF1-High"))
+```
+
+
+```{r SREBF1_high_featureplot}
+DimPlot(object = sce, cells.highlight = list(cells_of_interest), cols.highlight = "#639CA4FF", cols = "#e3e3e3", sizes.highlight = 0.4)
+```
+
+
+## Visualizing transcription factors in each cluster
+```{r}
+Idents(sce) <- sce$RNA_snn_res.0.4
+```
+
+```{r TF_vln_BCL3}
+VlnPlot(sce, features = c("BCL3(+)"), pt.size = 0, 
+        cols = c("#D4419EFF","#E0918BFF","#CDBB4CFF","#E5AD4FFF","#C871B7FF","#5D5087FF","#639CA4FF","#AEC6C7FF","#65C5D6FF","#D1ECCAFF",
+                 "#21409FFF","#65024BFF","#588B39FF","#505A23FF"))
+```
+
+```{r TF_vln_NFKB2}
+VlnPlot(sce, features = c("NFKB2(+)"), pt.size = 0, 
+        cols = c("#D4419EFF","#E0918BFF","#CDBB4CFF","#E5AD4FFF","#C871B7FF","#5D5087FF","#639CA4FF","#AEC6C7FF","#65C5D6FF","#D1ECCAFF",
+                 "#21409FFF","#65024BFF","#588B39FF","#505A23FF"))
+```
+
+```{r TF_vln_MEF2C}
+VlnPlot(sce, features = c("MEF2C(+)"), pt.size = 0, 
+        cols = c("#D4419EFF","#E0918BFF","#CDBB4CFF","#E5AD4FFF","#C871B7FF","#5D5087FF","#639CA4FF","#AEC6C7FF","#65C5D6FF","#D1ECCAFF",
+                 "#21409FFF","#65024BFF","#588B39FF","#505A23FF"))
+```

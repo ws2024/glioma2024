@@ -1,0 +1,203 @@
+---
+title: "figure4"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(viridis)
+library(Seurat)
+library(dplyr)
+library(CellChat)
+library(ggsignif)
+```
+
+
+## Loading the seurat object
+```{r}
+load(file = "17glioma_seurat.Rdata")
+Idents(sce) <- sce@meta.data$subclusters
+```
+
+# Visualization by dimensionality plot
+```{r total_sce}
+DimPlot(sce,group.by = "LGG_GBM",cols = c("#65C5D6FF","#E5AD4FFF"))
+FeaturePlot(sce,reduction = "umap",features = c("SPP1","PTPRC","CD68","CD3D"),pt.size = 0.1,cols = c("#65024BFF","#FFDB01"))
+```
+
+
+```{r TAM_dotplot}
+DotPlot(TAM_seu,features = c("CCL3","CCL4L2","IL1B","AIF1","C1QA","C1QB","SPP1","S100A11","LGALS1"),assay='RNA',cols = c("#FFDB01","#0E197D")) + coord_flip()
+```
+
+
+```{r TAM_dimplot}
+DimPlot(TAM_seu,reduction = "umap",group.by = "TAM3cluster",label = F,repel = TRUE,pt.size = 0.8,cols = c("#D4419EFF","#E5AD4FFF","#639CA4FF"))
+```
+
+
+```{r TAM_SPP1_vlnplot}
+VlnPlot(TAM_seu,features = "SPP1",assay='RNA',cols = c("#65C5D6FF","#E5AD4FFF"),pt.size=0.02,group.by = "LGG_GBM") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ylim(0, 10)
+```
+
+
+## Calculating the proportion of SPP1+TAM in total cells
+```{r}
+Idents(TAM_seu) <- TAM_seu@meta.data$id_6LGG_11GBM
+group_table <- as.data.frame(table(TAM_seu@meta.data$id_6LGG_11GBM,TAM_seu@meta.data$TAM3cluster))
+names(group_table) <- c("group","celltype","CellNumber")
+group_table$group2<-ifelse(group_table$group %in% c("MDAG-11","MDAG-3","GSM6398354_TB4916","GSM6398355_TB3926","GSM6398356_TB3652","GSM6398357_TB4100"), "LGG", "GBM")
+group_table$celltype <- as.character(group_table$celltype)
+group_table_spp1 <- group_table[group_table$celltype == "MC_SPP1",]
+Idents(sce) <- sce$id_6LGG_11GBM
+group <- c("MDAG-3","MDAG-11","GSM6398354_TB4916","GSM6398355_TB3926","GSM6398356_TB3652","GSM6398357_TB4100","ndGBM-01","ndGBM-11","ndGBM-02","ndGBM-03","ndGBM-10","ndGBM-04","ndGBM-05","ndGBM-06","ndGBM-07","ndGBM-08","ndGBM-09")
+totalcell <- c(10816,6871,5717,2708,529,2002,20287,3935,14457,8975,9840,7395,6700,3119,8888,5455,4932)
+df <- data.frame(group, totalcell)
+group_table_spp1_2 <- merge(group_table_spp1,df,by="group")
+group_table_spp1_2$percentage <- group_table_spp1_2$CellNumber/group_table_spp1_2$totalcell
+
+compared_list = list(c("LGG", "GBM"))
+
+```
+
+
+```{r LGGvsGBM_SPP1_inTotal}
+ggplot(group_table_spp1_2, aes(x = group2, y = percentage, fill = group2)) +
+  geom_jitter(width =0.2,shape = 21,size=4) +
+  geom_boxplot(width=0.4,alpha=0.4) +
+  scale_color_manual(values = c("#65C5D6FF","#E5AD4FFF")) +
+  scale_fill_manual(values = c("#65C5D6FF","#E5AD4FFF")) +
+  geom_signif(comparisons = compared_list, test = t.test) +
+  labs(x = "Cell Type", y = "Cell Percentage") +
+  ggtitle("SPP1+TAM in total cell percentage") +
+  theme_test() 
+```
+
+
+## Calculating the proportion of AIF+TAM in total cells
+```{r}
+group_table_AIF1 <- group_table[group_table$celltype == "MC_AIF1",]
+group_table_AIF1_2 <- merge(group_table_AIF1,df,by="group")
+group_table_AIF1_2$percentage <- group_table_AIF1_2$CellNumber/group_table_AIF1_2$totalcell
+
+```
+
+
+```{r LGGvsGBM_AIF1_inTotal}
+ggplot(group_table_AIF1_2, aes(x = group2, y = percentage, fill = group2)) +
+  geom_jitter(width =0.2,shape = 21,size=4) +
+  geom_boxplot(width=0.4, alpha=0.4) +
+  scale_color_manual(values = c("#65C5D6FF","#E5AD4FFF")) +
+  scale_fill_manual(values = c("#65C5D6FF","#E5AD4FFF")) +
+  geom_signif(comparisons = compared_list, test = t.test) +
+  labs(x = "Cell Type", y = "Cell Percentage") +
+  ggtitle("AIF1+TAM in total cell percentage") +
+  theme_test() 
+
+```
+
+
+## Visualizing T cells
+```{r}
+Idents(Tcell_seu) <- Tcell_seu@meta.data$Tcellres0.1
+features = c("CD69","CCL5","IL7R","CD3G","KLRD1","GZMB","GNLY","IL2RA","TIGIT","CTLA4","IGLC1","IGLC2","IGKC","MS4A1","BANK1","CD79A","TOP2A","STMN1","HMGB2")
+
+```
+
+
+```{r UMAP_tcell}
+DimPlot(Tcell_seu,group.by = "Tcellres0.1", cols=c("#5D5087FF","#2878B5","#AEC6C7FF","#65C5D6FF","#D1ECCAFF","darkgreen"), label =F)
+
+```
+
+```{r TcellsMarkers}
+DotPlot(Tcell_seu,features = features,assay='RNA',scale=T,cols = c("#FFDB01","#0E197D"), group.by = "Tcellres0.1")+ theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+
+
+## Analyzing cell-cell interactions between lymphocytes and TAMs
+```{r}
+Idents(sce)<-sce@meta.data$fivecluster
+table(Idents(sce))
+sce.all<-subset(sce, ident=c("TAM","tumor","peri","Tcell"))
+data.input <- sce.all@assays$RNA@data
+meta.data <-  sce.all@meta.data
+cellchat <- createCellChat(object = data.input, meta = meta.data, group.by = "fivecluster")
+CellChatDB <- CellChatDB.human 
+CellChatDB.use <- CellChatDB 
+cellchat@DB <- CellChatDB.use
+cellchat <- subsetData(cellchat) 
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+cellchat <- computeCommunProb(cellchat,raw.use = T)
+cellchat <- filterCommunication(cellchat, min.cells = 10) 
+df.net <- subsetCommunication(cellchat)
+df.pathway <- subsetCommunication(cellchat,slot.name = "netP")
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat)
+
+```
+
+
+```{r TAM_Tcells_Chord_pathway}
+netVisual_chord_gene(cellchat, sources.use = 1, targets.use = c(4), lab.cex = 1,slot.name = "netP",title.name = "Chord diagram: show pathway") 
+
+```
+
+
+
+## Analyzing cell-cell interactions between subsets of lymphocytes and TAMs
+```{r}
+Idents(sce) <- sce@meta.data$subclusters
+sce_sub.all <- subset(sce, ident=c("MC_AIF1","MC_CCL3","MC_SPP1","abT","PreB","exhauT","gdT","PlasmaB","CyclingT"))
+data.input <- sce_sub.all@assays$RNA@data
+meta.data <- sce_sub.all@meta.data
+meta.data$subclusters <- factor(meta.data$subclusters)
+cellchat <- createCellChat(object = data.input, meta = meta.data, group.by = "subclusters")
+cellchat@DB <- CellChatDB.use
+cellchat <- subsetData(cellchat) 
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+cellchat <- computeCommunProb(cellchat,raw.use = T)
+cellchat <- filterCommunication(cellchat, min.cells = 10)
+df.net <- subsetCommunication(cellchat)
+df.pathway <- subsetCommunication(cellchat,slot.name = "netP")
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat)
+cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP")
+ht1 <- netAnalysis_signalingRole_heatmap(cellchat, pattern = "outgoing",signaling = c("SPP1","GALECTIN"))
+ht2 <- netAnalysis_signalingRole_heatmap(cellchat, pattern = "incoming",signaling = c("SPP1","GALECTIN"))
+
+```
+
+
+```{r outgoing_incoming_subtypes}
+ht1 + ht2
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

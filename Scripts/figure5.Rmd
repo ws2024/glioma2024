@@ -1,0 +1,273 @@
+---
+title: "figure5"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(GSVA) 
+library(GSEABase)
+library(pheatmap)
+library(limma)
+library(ConsensusClusterPlus)
+library(dplyr)
+library(survival)
+library(survminer)
+library(survivalROC)
+library(RColorBrewer)
+library(ggplot2)
+library(cowplot)
+library(ggpubr)
+```
+
+```{r}
+immunesigdb <- read.table("gsva_TAM_matrix.csv", header=T, sep=",", check.names=F, row.names = 1)
+immunesigdb <- as.matrix(immunesigdb)
+
+results <- ConsensusClusterPlus(immunesigdb, maxK = 6,
+                                reps = 20, pItem = 0.8, seed=123,
+                                pFeature = 0.8,  
+                                clusterAlg = "hc", 
+                                distance = "pearson",
+                                plot = "png")
+icl <- calcICL(results,plot = "png")
+
+cluster_2 <- results[[2]][["consensusClass"]]
+```
+
+
+```{r}
+ciber_cli <- read.table("ciber_cli.csv", header=T, sep=",", check.names=F, row.names = 1)
+fit <- survfit(Surv(OS, status) ~ cluster, data = ciber_cli)
+```
+
+
+```{r hallmarkConsensusCluster_survival}
+ggsurvplot(fit, pval = TRUE, palette = c("#9BB655FF","#F8A02EFF"), conf.int = T, risk.table = TRUE, xlim = c(0, 3000), break.x.by = 1000)
+
+```
+
+```{r}
+ciber <- read.table("CIBERSORTx.txt", header=T, sep="\t", check.names=F, row.names = 1) 
+str(ciber)
+ciber<-ciber[,1:7]
+rownames(ciber) <- str_sub(rownames(ciber), 1,12)
+
+group <- ciber_cli[,c(19,20)]
+group <- na.omit(group)
+rownames(group) <- group$sample
+
+com_sam <- intersect(rownames(ciber),rownames(group))
+ciber <- ciber[com_sam,]
+group <- group[com_sam,]
+identical(rownames(ciber),rownames(group))
+
+
+group1 <- group[order(group$cluster),]   
+ciber1 <- ciber[group1$sample,]
+
+mypalette <- colorRampPalette(brewer.pal(8,"Set1"))
+ciber2 <- as.matrix(ciber1)
+ciber3 <- proportions(ciber2,1)
+ciber_dat <- ciber3 %>% as.data.frame() %>% rownames_to_column("Sample") %>% gather(key = Cell_type,value = Proportion,-Sample)
+```
+
+```{r Geomplot}
+ggplot(ciber_dat,aes(Sample,Proportion,fill = Cell_type)) + 
+  geom_bar(stat = "identity") +
+  labs(fill = "Cell Type", x = "", y = "Proportion") + 
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.position = "bottom") + 
+  scale_y_continuous(expand = c(0.01,0)) +
+  scale_fill_manual(values = mypalette(27))
+```
+
+```{r}
+a = ciber_dat %>% 
+  group_by(Cell_type) %>% 
+  summarise(m = median(Proportion)) %>% 
+  arrange(desc(m)) %>% 
+  pull(Cell_type)
+ciber_dat$Cell_type = factor(ciber_dat$Cell_type,levels = a)
+ciber_dat$Group = as.factor(group1$cluster)
+```
+
+
+```{r Boxplot}
+ggplot(ciber_dat,aes(Cell_type,Proportion,fill = Group)) + 
+  geom_boxplot(outlier.shape = 21,color = "black") + 
+  theme_bw() + 
+  labs(x = "Cell Type", y = "Proportion") +
+  theme(legend.position = "top") + 
+  theme(axis.text.x = element_text(angle=60,vjust = 0.5))+
+  scale_fill_manual(values = c("#9BB655FF","#F8A02EFF"))+ 
+  stat_compare_means(aes(group = Group,label = ..p.signif..),method = "kruskal.test")
+```
+
+
+## Performing survival analysis of TAM subsets
+```{r}
+ciber_cli$test<-ifelse(ciber_cli$`TAM_SPP1`>median(ciber_cli$`TAM_SPP1`), "high","low")
+fit<- survfit(Surv(OS, status) ~ test, data = ciber_cli)
+```
+
+
+```{r TAM_SPP1_survival_median}
+ggsurvplot(fit,pval = TRUE,palette = c("#E7B800", "#2E9FDF"),conf.int = TRUE,risk.table = TRUE,xlim = c(0, 3000),break.x.by = 1000)
+```
+
+
+```{r}
+ciber_cli$test<-ifelse(ciber_cli$`TAM_CCL3`>median(ciber_cli$`TAM_CCL3`), "high","low")
+fit<- survfit(Surv(OS, status) ~ test, data = ciber_cli)
+```
+
+```{r TAM_CCL3_survival}
+ggsurvplot(fit,pval = TRUE,palette = c("#E7B800", "#2E9FDF"),conf.int = TRUE,risk.table = TRUE,xlim = c(0, 3000),break.x.by = 1000)
+```
+
+## Determining the proportion of TAM_SPP1 in TCGA patients
+```{r}
+ciber_cli$status<-factor(ciber_cli$status,levels = c("0","1"))
+my_comparision<-list(c("0","1"))
+cell<-(c("TAM_SPP1"))
+ciber_cli <- na.omit(ciber_cli)
+plist<-list()
+for (i in 1:length(cell)){
+  bar_tmp<-ciber_cli[,c(cell[i],"status")]
+  colnames(bar_tmp)<-c("Expression","status")
+  pb1<- ggplot(data = bar_tmp,aes(x = status, 
+                                  y = Expression , 
+                                  fill = status))+ 
+    geom_violin(alpha = 0.4, position = position_dodge(width = .75), 
+                size = 0.8, color = "black") +
+    geom_boxplot(notch = TRUE, outlier.size = -1, 
+                 color = "black", lwd = 0.8, alpha = 0.7) +
+    geom_point(shape = 21, size = 2, 
+               position = position_jitterdodge(), 
+               color = "black", alpha = 1) +
+    theme_bw() + 
+    ylab("cell proportion") +
+    xlab(cell[i]) +
+    theme(axis.text.x = element_text(size = 12, color = "black"),
+          axis.ticks = element_line(size = 0.2, color="black"),
+          axis.ticks.length = unit(0.2, "cm"),
+          legend.position = "none",
+          panel.background = element_blank(),
+          panel.grid = element_blank(),
+          axis.title = element_text(size = 12),
+          axis.text = element_text(size = 12)) +
+    stat_compare_means(method = "t.test",hide.ns = F,comparisons = my_comparision,label = "p.signif") + scale_fill_manual(values = c("#56B4E9","#E7B800"))
+  plist[[i]] <- pb1
+} 
+```
+
+
+```{r live_dead_spp1TAM1}
+plot_grid(plotlist = plist)
+```
+
+## Creating a heatmap of immune genes
+```{r}
+heatmap_immune <- read.csv("heatmap_immune.csv", row.names = 1)
+heatmap <- heatmap_immune[,c(1,2,3)]
+rownames(heatmap) <- heatmap$gene
+heatmap <- heatmap[,-1]
+immuneEscape <- heatmap_immune[,c(1,4,5)]
+rownames(immuneEscape) <- immuneEscape$gene
+immuneEscape <- immuneEscape[,-1]
+```
+
+```{r heatmap}
+pheatmap(heatmap,cluster_rows =F,cluster_cols =F,annotation_row = immuneEscape, color=colorRampPalette(c("#9BB655FF","white","#F8A02EFF"))(50),border_color = "white",show_colnames=T,fontsize=7.5,fontsize_row=7, fontsize_col=5)
+```
+
+
+
+## Validating findings on the CGGA dataset
+```{r}
+df <- read.csv("df_cgga.csv", row.names = 1) 
+df$status = as.factor(df$status)
+df_primary<-df[df$Group=="Primary",]
+
+my_comparision <- list(c("0","1"))
+bar_tmp<-df_primary[,c("TAM_SPP1_sigscore","status")]
+colnames(bar_tmp)<-c("Expression","status")
+
+```
+
+
+```{r CGGA_live_dead}
+ggplot(data = bar_tmp,aes(x = status, y = Expression, fill = status))+ 
+  geom_violin(alpha = 0.4, position = position_dodge(width = .75), size = 0.8, color="black") +
+  geom_boxplot(notch = TRUE, outlier.size = -1, color="black", lwd=0.8, alpha = 0.7) +
+  geom_point(shape = 21, size=2, position = position_jitterdodge(), color="black", alpha = 1) +
+  theme_bw() + 
+  ylab("cell proportion") +
+  xlab("TAM_SPP1_sigscore") +
+  theme(axis.text.x = element_text(size = 12, color = "black"),
+        axis.ticks = element_line(size=0.2, color="black"),
+        axis.ticks.length = unit(0.2, "cm"),
+        legend.position = "none",
+        panel.background = element_blank(),
+        panel.grid = element_blank(),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 12)) +
+  stat_compare_means(method="t.test",hide.ns = F,comparisons =my_comparision,label="p.signif")+scale_fill_manual(values=c("#1BB6AFFF","#EA879CFF"))
+
+```
+
+
+```{r CGGA_primary_recurrent}
+my_comparision<-list(c("Primary","Recurrent"))
+
+bar_tmp<-df[,c("TAM_SPP1_sigscore","Group")]
+colnames(bar_tmp)<-c("Expression","Group")
+ggplot(data = bar_tmp,aes(x = Group, y = Expression , fill = Group))+ 
+  geom_violin(alpha = 0.4, position = position_dodge(width = .75), size = 0.8, color="black") +
+  geom_boxplot(notch = TRUE, outlier.size = -1, color="black", lwd=0.8, alpha = 0.7) +
+  geom_point(shape = 21, size=2, position = position_jitterdodge(), color="black", alpha = 1) +
+  theme_bw() + 
+  ylab("cell proportion") +
+  xlab("TAM_SPP1_sigscore") +
+  theme(axis.text.x = element_text(size = 12, color = "black"),
+        axis.ticks = element_line(size=0.2, color="black"),
+        axis.ticks.length = unit(0.2, "cm"),
+        legend.position = "none",
+        panel.background = element_blank(),
+        panel.grid = element_blank(),
+        axis.title = element_text(size = 12),
+        axis.text = element_text(size = 12)) +
+  stat_compare_means(method="t.test",hide.ns = F,comparisons =my_comparision,label="p.signif")+scale_fill_manual(values=c("#EBA07EFF", "#B0CBE7FF"))
+
+```
+
+
+
+```{r CGGA_TAM-SPP1_survival}
+df$status<-as.numeric(df$status)
+df$test<-ifelse(df$ciber_TAM_SPP1>median(df$ciber_TAM_SPP1), "high","low")
+fit<- survfit(Surv(OS, status) ~ test, data = df)
+
+ggsurvplot(fit,pval = TRUE,palette = c("#EA879CFF", "#1BB6AFFF"),conf.int = TRUE,risk.table = TRUE, xlim = c(0, 3000),break.x.by=1000)
+
+```
+
+
+```{r CGGA_TAM-CCL3_survival}
+df$test<-ifelse(df$ciber_TAM_CCL3>median(df$ciber_TAM_CCL3), "high","low")
+fit<- survfit(Surv(OS, status) ~ test, data = df)
+
+ggsurvplot(fit,pval = TRUE,palette = c("#EA879CFF", "#1BB6AFFF"),conf.int = TRUE,risk.table = TRUE, xlim = c(0, 3000),break.x.by=1000)
+
+```
+
+
+
+

@@ -1,0 +1,242 @@
+---
+title: "Figure1"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading necessary packages
+```{r}
+library(Seurat)
+library(ggplot2)
+library(harmony)
+library(tidyverse)
+library(reshape2)
+library(patchwork)
+library(stringr)
+library(scRNAtoolVis)
+library(dplyr)
+library(CellChat)
+```
+
+
+## Creating a seurat object
+```{r}
+samples_id <- c("GSM5518630","GSM5518631","GSM5518632","GSM5518638")
+data_path <- paste0("GSE182109_grade23/", samples_id)
+seu_glioma <- sapply(X = data_path, function(x) Read10X(x))
+names(seu_glioma) <- samples_id
+seu_se <- list()
+for( i in 1:4){
+  seu_se[[i]] <- CreateSeuratObject(counts = seu_glioma[[i]], project = samples_id[i], min.cells = 3, min.features = 500)
+  seu_se[[i]] <- RenameCells(seu_se[[i]], add.cell.id = samples_id[i])
+}
+
+for( i in 1:4){
+  seu_se[[i]][["percent.mt"]] <- PercentageFeatureSet(seu_se[[i]], pattern = "^MT-")
+}
+
+for( i in 1:4){
+  seu_se[[i]][["percent.ribo"]] <- PercentageFeatureSet(seu_se[[i]], pattern = "^RP[SL]")
+}
+
+for( i in 1:4){
+  seu_se[[i]][["percent.hb"]] <- PercentageFeatureSet(seu_se[[i]], pattern = "^HB[^(P)]")
+}
+
+seu_merge <- merge(x = seu_se[[1]], y = c(seu_se[[2]],seu_se[[3]],seu_se[[4]]), project = "seu")
+
+selected_c <- WhichCells(seu_merge, expression = nFeature_RNA > 500 & nCount_RNA < 20000)
+seu_filt <- subset(seu_merge, cells = selected_c)
+selected_mito <- WhichCells(seu_filt, expression = percent.mt < 20)
+seu_filt <- subset(seu_filt, cells = selected_mito)
+
+percent_hb <- WhichCells(seu_filt, expression = percent.hb < 0.1)
+seu_filt <- subset(seu_filt, cells = percent_hb)
+dim(seu_filt)
+```
+
+
+## Adding metadata to the seurat object
+```{r}
+meta <- read.table("LGGmeta.txt",sep="\t",header=FALSE)
+colnames(meta) <- c("V1","orig.ident","nCount_RNA","nFeature_RNA","CopyKatPrediction","Patient","Fragment","Type","Grade","GSMID","barcode","Phase","sex","Cluster","Assignment","SubCluster","SubAssignment","barcode","celltype")
+rownames(meta) <- meta$V1
+seu_filt <- AddMetaData(object = seu_filt, metadata = meta)
+seu_filt <- SetIdent(seu_filt, value = seu_filt@meta.data$celltype)
+seu_filt_NAomit <- subset(seu_filt, idents= c("h-microglia","GC05","GC01","GC07","GC02","i-microglia","Oligo","Pericytes","GC04","Myeloid","s-mac 1","GC03","AP-microglia","MDSC","CD4 TCells","a-microglia","Endo","GC06","CD8 TCells","TCells","Naiive TCells","BCells","s-mac 2","Proliferating","Tregs","NKCells","DCs"))
+```
+
+
+## Standard seurat workflow
+```{r}
+seu <- seu_filt_NAomit
+seu <- NormalizeData(seu,normalization.method = "LogNormalize",scale.factor = 1e4) 
+seu <- FindVariableFeatures(seu)
+seu <- ScaleData(seu)
+seu <- RunPCA(seu, features = VariableFeatures(object = seu))
+seu <- RunHarmony(seu, "orig.ident")
+seu <- RunUMAP(seu,dims = 1:15, reduction = "harmony")
+seu <- FindNeighbors(seu, reduction = "harmony", dims = 1:15) 
+seu <- FindClusters(seu, resolution = 0.05, algorithm = 1)
+```
+
+
+## Visualizing each cluster
+```{r DimPlot}
+DimPlot(seu, reduction = "umap",cols = c("#A1A9D0","#F0988C","#B883D4","#FFBE7A","#FA7F6F","#2878B5","#96CCCB"),group.by = "RNA_snn_res.0.05",
+        split.by = "Patient", label = T,label.box = T)
+```
+
+
+## Identifying markers for each cluster
+```{r}
+seu.markers <- FindAllMarkers(object = seu, only.pos = FALSE, min.pct = 0.25,thresh.use = 0.25)
+
+new.cluster.ids <- c("Myeloid", "Glioma", "Glioma", "Oligodendrocytes","Glioma", "Tcells", "Pericyte")
+names(new.cluster.ids) <- levels(seu)
+seu <- RenameIdents(seu, new.cluster.ids)
+```
+
+```{r Volcano}
+jjVolcano(diffData = seu.markers,tile.col = corrplot::COL2('RdBu', 15)[4:10],base_size=20,min.segment.length = 0, box.padding = 0.6,
+          fontface = 'italic',polar = T,col.type = "updown",log2FC.cutoff = 0.5,topGeneN = 3)
+```
+
+
+## Annotating cell types
+```{r}
+library(HGNChelper)
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
+db_ = "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx";
+tissue = "Brain"
+gs_list = gene_sets_prepare(db_, tissue)
+es.max = sctype_score(scRNAseqData = seu@assays$RNA@scale.data, scaled = TRUE, gs = gs_list$gs_positive, gs2 = gs_list$gs_negative)
+
+cL_resutls = do.call("rbind", lapply(unique(seu@meta.data$RNA_snn_res.0.05), function(cl){
+  es.max.cl = sort(rowSums(es.max[ ,rownames(seu@meta.data[seu@meta.data$RNA_snn_res.0.05==cl, ])]), decreasing = !0)
+  head(data.frame(cluster = cl, type = names(es.max.cl), scores = es.max.cl, ncells = sum(seu@meta.data$RNA_snn_res.0.05==cl)), 10)
+}))
+sctype_scores = cL_resutls %>% group_by(cluster) %>% top_n(n = 1, wt = scores)  
+
+sctype_scores$type[as.numeric(as.character(sctype_scores$scores)) < sctype_scores$ncells/4] = "Unknown"
+print(sctype_scores[,1:3])
+
+seu@meta.data$customclassif = ""
+for(j in unique(sctype_scores$cluster)){
+  cl_type = sctype_scores[sctype_scores$cluster==j,]; 
+  seu@meta.data$customclassif[seu@meta.data$RNA_snn_res.0.05 == j] = as.character(cl_type$type[1])
+}
+```
+
+
+## Visualizing annotated cell identities
+```{r sctype}
+DimPlot(seu, reduction = "umap",label = TRUE,label.box = TRUE,pt.size = 0.1,label.size = 7,repel = TRUE,group.by = 'customclassif', 
+        cols = c("#A1A9D0","#3AA299","#B883D4","#FFBE7A","#FA7F6F","#2878B5","#96CCCB","#CF0000FF","#3F9250FF","#484860FF","#CBE42A","#FF3D7FFF","#3A488AFF"))  
+```
+
+
+## Analyzing cell-cell interactions 
+```{r}
+seu.all<-seu
+Idents(seu.all)<-seu.all@meta.data$RNA_snn_res.0.05
+celltype=data.frame(ClusterID=0:6,celltype=0:6)
+celltype[celltype$ClusterID %in% c(1),2]='C1-glioma-DLL3'
+celltype[celltype$ClusterID %in% c(0),2]='C0-TAM'
+celltype[celltype$ClusterID %in% c(2),2]='C2-glioma-SPARCL1'
+celltype[celltype$ClusterID %in% c(5),2]='C5-endothelial'
+celltype[celltype$ClusterID %in% c(4),2]='C4-glioma-TOP2A'
+celltype[celltype$ClusterID %in% c(3),2]='C3-oligodendrocyte'
+celltype[celltype$ClusterID %in% c(6),2]='C6-lymphocyte'
+
+seu.all@meta.data$celltype = "NA"
+for(i in 1:nrow(celltype)){
+  seu.all@meta.data[which(seu.all@meta.data$RNA_snn_res.0.05 == celltype$ClusterID[i]),'celltype'] <- celltype$celltype[i]}
+table(seu.all@meta.data$celltype)
+
+data.input = seu.all@assays$RNA@data
+meta.data =  seu.all@meta.data
+meta.data$celltype = factor(meta.data$celltype,
+                            levels = c("C0-TAM", "C1-glioma-DLL3", "C2-glioma-SPARCL1", "C3-oligodendrocyte", "C4-glioma-TOP2A","C5-endothelial","C6-lymphocyte"))
+cellchat <- createCellChat(object = data.input, meta = meta.data, group.by = "celltype")
+CellChatDB <- CellChatDB.human 
+showDatabaseCategory(CellChatDB)
+CellChatDB.use <- CellChatDB 
+cellchat@DB <- CellChatDB.use
+cellchat <- subsetData(cellchat)
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+cellchat <- computeCommunProb(cellchat,raw.use = T)
+cellchat <- filterCommunication(cellchat, min.cells = 10) 
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat)
+
+pathways.show <- c("SPP1","GALECTIN","PDGF","MIF","THY1","ANGPTL")
+pathways.show1 <- c("SPP1")
+pathways.show2 <- c("GALECTIN")
+pathways.show3 <- c("PDGF")
+pathways.show4 <- c("MIF")
+pathways.show5 <- c("THY1")
+pathways.show6 <- c("ANGPTL")
+```
+
+
+## Visualizing enriched ligand-receptor pairs
+```{r circle}
+netVisual_individual(cellchat, signaling = pathways.show, pairLR.use = "LGALS9_CD44", layout = "circle",vertex.label.cex = 1)
+netVisual_individual(cellchat, signaling = pathways.show, pairLR.use = "SPP1_CD44", layout = "circle",vertex.label.cex = 1)
+netVisual_individual(cellchat, signaling = pathways.show, pairLR.use = "MIF_CD74_CXCR4", layout = "circle",vertex.label.cex = 1)
+netVisual_individual(cellchat, signaling = pathways.show, pairLR.use = "THY1_ITGAX_ITGB2", layout = "circle",vertex.label.cex = 1)
+netVisual_individual(cellchat, signaling = pathways.show, pairLR.use = "ANGPTL2_TLR4", layout = "circle",vertex.label.cex = 1)
+```
+
+
+par(mfrow=c(1,6))
+```{r chord}
+netVisual_aggregate(cellchat, signaling = pathways.show1, layout = "chord",vertex.label.cex = 1)
+netVisual_aggregate(cellchat, signaling = pathways.show2, layout = "chord",vertex.label.cex = 1)
+netVisual_aggregate(cellchat, signaling = pathways.show3, layout = "chord",vertex.label.cex = 1)
+netVisual_aggregate(cellchat, signaling = pathways.show4, layout = "chord",vertex.label.cex = 1)
+netVisual_aggregate(cellchat, signaling = pathways.show5, layout = "chord",vertex.label.cex = 1)
+netVisual_aggregate(cellchat, signaling = pathways.show6, layout = "chord",vertex.label.cex = 1)
+```
+
+
+```{r heatmap}
+netVisual_heatmap(cellchat, signaling = pathways.show1, color.heatmap = "Reds")
+netVisual_heatmap(cellchat, signaling = pathways.show2, color.heatmap = "Reds")
+netVisual_heatmap(cellchat, signaling = pathways.show3, color.heatmap = "Reds")
+netVisual_heatmap(cellchat, signaling = pathways.show4, color.heatmap = "Reds")
+netVisual_heatmap(cellchat, signaling = pathways.show5, color.heatmap = "Reds")
+netVisual_heatmap(cellchat, signaling = pathways.show6, color.heatmap = "Reds")
+```
+
+
+```{r geneexpression}
+plotGeneExpression(cellchat, signaling = "SPP1")
+plotGeneExpression(cellchat, signaling = "GALECTIN")
+plotGeneExpression(cellchat, signaling = "PDGF")
+plotGeneExpression(cellchat, signaling = "MIF")
+plotGeneExpression(cellchat, signaling = "THY1")
+plotGeneExpression(cellchat, signaling = "ANGPTL")
+```
+
+
+```{r}
+cellchat <- netAnalysis_computeCentrality(cellchat, slot.name = "netP")
+ht1 <- netAnalysis_signalingRole_heatmap(cellchat, pattern = "outgoing",signaling = c("MIF","THY1","ANGPTL","SPP1","GALECTIN","PDGF"))
+ht2 <- netAnalysis_signalingRole_heatmap(cellchat, pattern = "incoming",signaling = c("MIF","THY1","ANGPTL","SPP1","GALECTIN","PDGF"))
+```
+
+
+```{r netAnalysis}
+ht1 + ht2
+```
+
+

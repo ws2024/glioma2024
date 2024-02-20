@@ -1,0 +1,105 @@
+---
+title: "figure2"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(Seurat)
+library(enrichplot)
+library(fgsea)
+library(tidyverse)
+library(DOSE)
+library(org.Hs.eg.db)
+library(ggplot2)
+load("sce_sceMarkers.Rdata")
+seu <- FindClusters(sce, resolution = 0.4)
+```
+
+
+## Generating a dimplot with more refined clusters
+```{r dimplot}
+DimPlot(seu, reduction = "umap",repel = T,
+        cols = c("#D4419EFF","#E0918BFF","#CDBB4CFF","#E5AD4FFF","#C871B7FF","#5D5087FF","#639CA4FF","#AEC6C7FF","#65C5D6FF","#D1ECCAFF","#21409FFF","#65024BFF","#588B39FF","#505A23FF"),pt.size = 0.5,label = T,label.size=12,label.box =T, group.by = "RNA_snn_res.0.4") 
+```
+
+```{r}
+seu_res0.4_markers <- FindAllMarkers(object = seu,only.pos = TRUE,min.pct = 0.25,thresh.use = 0.25)
+```
+
+
+```{r}
+features <- c("CCL3","CCL4L2","IL1B","DLL3","PTPRZ1","ETV1","GPR17","TNR","ATCAY","P2RY12","C1QA","AIF1","SPARCL1","ID4","CLU","PLP1","MBP","ERMN","SPP1","APOC1","APOC2","TOP2A","CENPF","H2AFZ","CLDN5","IFI27","IGFBP7","CCL5","IL7R","S100A4","TNK2","AC009041.2","KCNQ1OT1","PPP1R14A","LINC00689","SOX4","CADM2")
+```
+
+```{r dotplot}
+DotPlot(seu,features = features,assay="RNA",cols = c("#FFDB01","#0E197D"))+coord_flip()
+```
+
+
+## Visualizing immune checkpoints
+```{r}
+Immune_Checkpoint <- c("CTLA4","LAG3","PDCD1","TIGIT")
+```
+
+```{r dotplot_Immune_Checkpoint}
+DotPlot(seu,features = Immune_Checkpoint,assay="RNA",cols = c("#E7B800","#22763FFF"),group.by="RNA_snn_res.0.4")+coord_flip()
+```
+
+
+## Subsetting tumor-associated macrophages
+```{r}
+seu_TAM<-subset(seu,idents = c("0","3","6"))
+DEG_myeloid_C0 <- FindMarkers(seu_TAM, ident.1 = "0", ident.2 = c("3", "6"), logfc.threshold = 0.25)
+DEG_myeloid_C6 <- FindMarkers(seu_TAM, ident.1 = "6", ident.2 = c("3", "0"), logfc.threshold = 0.25)
+```
+
+
+## Performing GSEA Analysis for TAM_CCL3
+```{r}
+DEG_myeloid_C0$SYMBOl <- rownames(DEG_myeloid_C0)
+DEG_myeloid_C0 <- DEG_myeloid_C0[DEG_myeloid_C0$p_val<0.05,]
+Pre.genes <- DEG_myeloid_C0%>%arrange(desc(avg_log2FC))%>%dplyr::select(SYMBOl, avg_log2FC)
+ranks <- deframe(Pre.genes)
+pathways.hallmark <- gmtPathways("h.all.v2023.1.Hs.symbols.gmt")
+fgseaRes <- fgsea(pathways=pathways.hallmark, stats=ranks, nperm=1000)
+fgseaResTidy <- fgseaRes %>% as_tibble() %>% arrange(desc(NES))
+fgseaResTidy_top15 <- fgseaResTidy[1:15,]
+```
+
+
+```{r GSEA_C0vsC3C6_top15}
+ggplot(fgseaResTidy_top15, aes(reorder(pathway, -log10(pval)), -log10(pval))) +
+  geom_col(aes(fill=NES)) + coord_flip() +
+  labs(x="Pathway", y="-log10(pval)") + scale_fill_gradient(low = "#D4419EFF", high = "yellow") + theme_minimal()
+```
+
+
+## Performing GSEA Analysis for TAM_SPP1
+```{r}
+DEG_myeloid_C6$SYMBOl <- rownames(DEG_myeloid_C6)
+DEG_myeloid_C6 <- DEG_myeloid_C6[DEG_myeloid_C6$p_val<0.05,]
+Pre.genes <- DEG_myeloid_C6%>%arrange(desc(avg_log2FC)) %>% dplyr::select(SYMBOl, avg_log2FC)
+ranks <- deframe(Pre.genes)
+fgseaRes <- fgsea(pathways=pathways.hallmark, stats=ranks, nperm=1000)
+fgseaResTidy <- fgseaRes %>% as_tibble() %>% arrange(desc(NES))
+fgseaResTidy_top15 <- fgseaResTidy[1:15,]
+```
+
+
+```{r GSEA_C6vsC0C3_top15}
+ggplot(fgseaResTidy_top15, aes(reorder(pathway, -log10(pval)), -log10(pval))) +
+  geom_col(aes(fill=NES)) + coord_flip() +
+  labs(x="Pathway", y="-log10(pval)") + scale_fill_gradient(low = "#639CA4FF", high = "yellow") + theme_minimal()
+```
+
+
+
+
+
+
+
